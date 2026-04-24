@@ -1,22 +1,24 @@
 # Next In Line
 
-> Autonomous hiring pipeline for small teams — capacity-aware, traceable, and self-moving.
+> A lightweight autonomous hiring pipeline for small teams. Capacity-aware, traceable, and self-moving.
 
 ---
 
 ## Overview
 
-Small engineering teams often manage hiring pipelines manually using spreadsheets, emails, and follow-ups. Once reviewer capacity is full, applicants get delayed or lost.
+Small engineering teams often manage hiring through spreadsheets, emails, and manual follow-ups. Once reviewer capacity is full, applicants are delayed, lost, or manually tracked.
 
-**Next In Line** is a lightweight hiring pipeline system that automatically manages applicant movement through a bounded queue.
+**Next In Line** is a lightweight internal hiring pipeline that automatically manages applicant movement through a bounded queue.
 
 When capacity is full:
 
 * new applicants are waitlisted instead of rejected
 * exiting applicants free slots automatically
 * next candidates promote automatically
-* inactivity triggers decay + requeue
-* every transition is fully logged
+* inactivity triggers decay and requeue
+* every transition is logged and reconstructable
+
+Built for real operational constraints, not demo-only CRUD flows.
 
 ---
 
@@ -27,8 +29,9 @@ This system replaces spreadsheet-based hiring workflows with:
 * active review capacity control
 * automatic waitlist movement
 * inactivity handling
-* audit logs
-* deterministic queue ordering
+* applicant transparency
+* deterministic ordering under concurrency
+* full audit history
 
 ---
 
@@ -36,20 +39,20 @@ This system replaces spreadsheet-based hiring workflows with:
 
 ### Capacity-Aware Admissions
 
-Each job opening defines an active capacity.
+Each job opening defines active review capacity.
 
 Applicants are automatically assigned to:
 
 * `ACTIVE`
 * `WAITLIST`
 
-depending on slot availability.
+based on slot availability.
 
 ---
 
-### Automatic Promotion
+### Automatic Promotion Engine
 
-When an active applicant exits:
+When an active applicant exits for any reason:
 
 * the next waitlisted applicant is promoted automatically
 
@@ -57,38 +60,40 @@ No manual intervention required.
 
 ---
 
-### Inactivity Decay
+### Inactivity Decay Mechanism
 
 Promoted applicants enter `PENDING_ACK`.
 
-If they do not acknowledge:
+If they do not acknowledge within the defined window:
 
-* they decay back into waitlist
-* receive queue penalty
-* next candidate promotes automatically
+* they decay back into the waitlist
+* receive a queue penalty (`priority_score`)
+* next candidate is promoted automatically
+
+This creates a self-healing pipeline.
 
 ---
 
 ### Full Event Traceability
 
-Every transition is logged in the `events` table:
+Every transition is stored in the `events` table:
 
 * APPLIED
 * PROMOTED
 * EXITED
 * DECAYED
 
-This enables complete pipeline reconstruction.
+This enables complete lifecycle reconstruction.
 
 ---
 
 ### Applicant Transparency
 
-Applicants can query:
+Applicants can check:
 
 * current status
 * queue position
-* lifecycle history
+* transition history
 
 ---
 
@@ -124,48 +129,58 @@ Applicants can query:
 
 ---
 
-## Architecture
+## System Architecture
 
-Frontend Dashboard → REST API → Queue Logic Engine → PostgreSQL
+Frontend Dashboard → REST API → Queue Engine → PostgreSQL
 
 Layers:
 
 1. API Layer
 2. Service Logic Layer
-3. Transactional Persistence Layer
-4. Visual Dashboard Layer
+3. Transaction Layer
+4. Dashboard Layer
 
 ---
 
 ## Queue Ordering Logic
 
-Waitlist order uses:
+Waitlist ordering uses:
 
 1. `priority_score` (lower is better)
-2. `applied_at` timestamp (earlier first)
+2. `applied_at` (earlier first)
 
-This ensures fairness and deterministic replay behavior.
+This ensures fairness and deterministic behavior.
 
 ---
 
-## Concurrency Strategy
+## Concurrency Handling
 
-Critical operations use transactional locking:
+Critical transitions use database row locking:
 
 `SELECT ... FOR UPDATE`
 
 Used during:
 
 * applications
-* exits
 * promotions
+* exits
 * decay cascades
 
 This prevents:
 
-* double allocation
+* double allocation of final slot
 * race conditions
 * inconsistent promotions
+
+### Simultaneous Last Slot Scenario
+
+If two applications arrive at the same time for the final available slot:
+
+* one transaction acquires the lock first
+* that applicant receives the final `ACTIVE` slot
+* the second request waits briefly, rechecks state, and is placed into `WAITLIST`
+
+This guarantees correctness under concurrent submissions.
 
 ---
 
@@ -192,14 +207,14 @@ This prevents:
 
 ## Frontend Dashboard
 
-Live dashboard visualizes:
+Included dashboard visualizes:
 
-* pipeline by state
-* applicants list
-* recent event timeline
+* applicants grouped by state
+* event timeline
 * applicant history
+* live backend-connected data
 
-Connected to real backend APIs.
+The frontend is intentionally lightweight because the challenge is backend-heavy by design.
 
 ---
 
@@ -215,7 +230,7 @@ Connected to real backend APIs.
 
 ## 1. Clone Repository
 
-```bash id="r100"
+```bash id="f1"
 git clone <repo-url>
 cd Next-in-Line
 ```
@@ -224,32 +239,32 @@ cd Next-in-Line
 
 ## 2. Backend Setup
 
-```bash id="r101"
+```bash id="f2"
 cd backend
 npm install
 ```
 
-Create DB:
+Create database:
 
-```sql id="r102"
+```sql id="f3"
 CREATE DATABASE pipeline_db;
 ```
 
 Apply schema:
 
-```bash id="r103"
+```bash id="f4"
 psql -U <username> -d pipeline_db -f src/db/schema.sql
 ```
 
 Start backend:
 
-```bash id="r104"
+```bash id="f5"
 npm start
 ```
 
 Runs on:
 
-```text id="r105"
+```text id="f6"
 http://localhost:5050
 ```
 
@@ -257,7 +272,7 @@ http://localhost:5050
 
 ## 3. Frontend Setup
 
-```bash id="r106"
+```bash id="f7"
 cd ../frontend
 npm install
 npm run dev
@@ -265,7 +280,7 @@ npm run dev
 
 Open:
 
-```text id="r107"
+```text id="f8"
 http://localhost:5173
 ```
 
@@ -275,29 +290,42 @@ http://localhost:5173
 
 Run backend test suite:
 
-```bash id="r108"
+```bash id="f9"
 cd backend
 npm test
 ```
 
-Covers:
+Current test coverage includes:
 
 * job creation
-* capacity limits
+* capacity boundaries
 * apply logic
 * promotion logic
 * decay handling
 * invalid requests
 * repeated exits
-* history/status correctness
+* history/status behavior
+
+---
+
+## Engineering Highlights
+
+* Deterministic queue behavior
+* Capacity-aware applicant flow
+* Automatic promotion logic
+* Inactivity recovery mechanism
+* Full audit trail of transitions
+* Explicit concurrency control
+* Clean REST API design
+* Functional local frontend + backend stack
 
 ---
 
 ## Design Tradeoffs
 
-* Single-node simplicity over distributed complexity
-* Explicit rule engine over generic workflow abstraction
-* Minimal UI with strong backend correctness focus
+* Single-node PostgreSQL simplicity over distributed complexity
+* Explicit rule engine over generic workflow abstractions
+* Minimal frontend with backend correctness prioritized
 
 ---
 
@@ -308,25 +336,12 @@ Covers:
 * email / SMS notifications
 * multi-job support
 * analytics dashboard
-* OpenAPI docs
+* OpenAPI / Swagger docs
 * Docker deployment
-
----
-
-## Why This Submission Stands Out
-
-This is not a CRUD tracker.
-
-It is a deterministic hiring queue engine with:
-
-* bounded capacity control
-* self-moving pipeline transitions
-* inactivity recovery logic
-* audit-grade event history
-* tested backend flows
 
 ---
 
 ## Built For
 
 Small teams needing ATS-like control without ATS-like cost.
+
