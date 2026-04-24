@@ -6,140 +6,145 @@
 
 ## Overview
 
-Small teams often manage hiring through spreadsheets, emails, and manual follow-ups. Once active review capacity is full, new applicants get lost, delayed, or manually tracked.
+Small engineering teams often manage hiring pipelines manually using spreadsheets, emails, and follow-ups. Once reviewer capacity is full, applicants get delayed or lost.
 
-**Next In Line** is a lightweight internal hiring pipeline that automatically manages applicant flow using explicit queue logic.
+**Next In Line** is a lightweight hiring pipeline system that automatically manages applicant movement through a bounded queue.
 
-When active capacity is full:
+When capacity is full:
 
-* new applicants are **waitlisted**, not rejected
-* when someone exits, the next candidate is **promoted automatically**
-* inactivity during promotion triggers **decay + requeue**
-* every state transition is **logged and reconstructable**
-
-Built for real operational constraints, not demo-only CRUD flows.
+* new applicants are waitlisted instead of rejected
+* exiting applicants free slots automatically
+* next candidates promote automatically
+* inactivity triggers decay + requeue
+* every transition is fully logged
 
 ---
 
-## Core Problem Solved
+## Problem Solved
 
-Traditional lightweight hiring workflows fail because they lack:
+This system replaces spreadsheet-based hiring workflows with:
 
-* bounded reviewer capacity
-* automatic queue movement
+* active review capacity control
+* automatic waitlist movement
 * inactivity handling
-* auditability
-* deterministic ordering under concurrency
-
-This project solves all five.
+* audit logs
+* deterministic queue ordering
 
 ---
 
-## Key Features
+## Core Features
 
 ### Capacity-Aware Admissions
 
-Each job opening defines how many applicants can be actively reviewed at once.
+Each job opening defines an active capacity.
 
-Applications are assigned to:
+Applicants are automatically assigned to:
 
 * `ACTIVE`
 * `WAITLIST`
 
-based on available capacity.
+depending on slot availability.
 
 ---
 
-### Automatic Promotion Engine
+### Automatic Promotion
 
-When an active applicant exits for any reason, the next waitlisted candidate is promoted automatically.
+When an active applicant exits:
 
-No spreadsheet edits. No manual chasing.
+* the next waitlisted applicant is promoted automatically
 
----
-
-### Inactivity Decay Mechanism
-
-When a promoted applicant enters `PENDING_ACK`, they must acknowledge within the defined window.
-
-If they do not:
-
-* they are not removed
-* they decay back into the waitlist
-* their priority worsens
-* the next candidate promotes automatically
-
-This creates a self-healing pipeline.
+No manual intervention required.
 
 ---
 
-### Full Event Audit Trail
+### Inactivity Decay
 
-Every transition is stored in an append-only event log:
+Promoted applicants enter `PENDING_ACK`.
 
-* applied
-* promoted
-* exited
-* decayed
+If they do not acknowledge:
 
-This enables full lifecycle reconstruction.
+* they decay back into waitlist
+* receive queue penalty
+* next candidate promotes automatically
+
+---
+
+### Full Event Traceability
+
+Every transition is logged in the `events` table:
+
+* APPLIED
+* PROMOTED
+* EXITED
+* DECAYED
+
+This enables complete pipeline reconstruction.
 
 ---
 
 ### Applicant Transparency
 
-Applicants can check:
+Applicants can query:
 
 * current status
 * queue position
-* transition history
+* lifecycle history
 
 ---
 
 ## Pipeline States
 
-| State       | Meaning                           |
-| ----------- | --------------------------------- |
-| ACTIVE      | Under active review               |
-| WAITLIST    | Waiting for capacity              |
-| PENDING_ACK | Promoted, awaiting acknowledgment |
-| EXITED      | Removed from active pipeline      |
+| State       | Meaning                     |
+| ----------- | --------------------------- |
+| ACTIVE      | Under active review         |
+| WAITLIST    | Waiting for slot            |
+| PENDING_ACK | Promoted, awaiting response |
+| EXITED      | Removed from pipeline       |
 
 ---
 
-## System Architecture
+## Tech Stack
 
-Frontend:
+### Frontend
 
-* React + Vite
-* Tailwind CSS dashboard
+* React
+* Vite
+* Tailwind CSS
+* Axios
+* Framer Motion
 
-Backend:
+### Backend
 
 * Node.js
-* Express
+* Express.js
 
-Database:
+### Database
 
 * PostgreSQL
 
-Design Layers:
+---
 
-1. API Layer — request validation and transport
-2. Service Layer — queue rules and transitions
-3. Persistence Layer — transactional DB + event logs
-4. UI Layer — pipeline visibility dashboard
+## Architecture
+
+Frontend Dashboard → REST API → Queue Logic Engine → PostgreSQL
+
+Layers:
+
+1. API Layer
+2. Service Logic Layer
+3. Transactional Persistence Layer
+4. Visual Dashboard Layer
 
 ---
 
 ## Queue Ordering Logic
 
-Waitlist order is deterministic:
+Waitlist order uses:
 
 1. `priority_score` (lower is better)
 2. `applied_at` timestamp (earlier first)
 
-This ensures fairness and replayability.
+This ensures fairness and deterministic replay behavior.
 
 ---
 
@@ -151,14 +156,14 @@ Critical operations use transactional locking:
 
 Used during:
 
-* application submission
-* promotions
+* applications
 * exits
+* promotions
 * decay cascades
 
 This prevents:
 
-* double allocation of final slot
+* double allocation
 * race conditions
 * inconsistent promotions
 
@@ -178,6 +183,8 @@ This prevents:
 
 ### Read APIs
 
+* `GET /applications`
+* `GET /applications/events`
 * `GET /applications/:id/status`
 * `GET /applications/:id/history`
 
@@ -185,12 +192,14 @@ This prevents:
 
 ## Frontend Dashboard
 
-The included dashboard visualizes:
+Live dashboard visualizes:
 
-* applicant pipeline by state
-* event timeline
+* pipeline by state
+* applicants list
+* recent event timeline
 * applicant history
-* live backend-connected data
+
+Connected to real backend APIs.
 
 ---
 
@@ -206,7 +215,7 @@ The included dashboard visualizes:
 
 ## 1. Clone Repository
 
-```bash
+```bash id="r100"
 git clone <repo-url>
 cd Next-in-Line
 ```
@@ -215,39 +224,40 @@ cd Next-in-Line
 
 ## 2. Backend Setup
 
-```bash
+```bash id="r101"
 cd backend
 npm install
 ```
 
-Create database:
+Create DB:
 
-```sql
+```sql id="r102"
 CREATE DATABASE pipeline_db;
 ```
 
 Apply schema:
 
-```bash
+```bash id="r103"
 psql -U <username> -d pipeline_db -f src/db/schema.sql
 ```
 
 Start backend:
 
-```bash
+```bash id="r104"
 npm start
 ```
 
-Expected:
+Runs on:
 
-* `http://localhost:5050/`
-* `http://localhost:5050/test-db`
+```text id="r105"
+http://localhost:5050
+```
 
 ---
 
 ## 3. Frontend Setup
 
-```bash
+```bash id="r106"
 cd ../frontend
 npm install
 npm run dev
@@ -255,7 +265,7 @@ npm run dev
 
 Open:
 
-```text
+```text id="r107"
 http://localhost:5173
 ```
 
@@ -263,9 +273,9 @@ http://localhost:5173
 
 ## Tests
 
-Backend flow tests included:
+Run backend test suite:
 
-```bash
+```bash id="r108"
 cd backend
 npm test
 ```
@@ -273,19 +283,19 @@ npm test
 Covers:
 
 * job creation
-* capacity boundaries
+* capacity limits
 * apply logic
-* automatic promotion
-* decay logic
-* invalid inputs
+* promotion logic
+* decay handling
+* invalid requests
 * repeated exits
-* history/status behavior
+* history/status correctness
 
 ---
 
 ## Design Tradeoffs
 
-* Single-node DB simplicity over distributed complexity
+* Single-node simplicity over distributed complexity
 * Explicit rule engine over generic workflow abstraction
 * Minimal UI with strong backend correctness focus
 
@@ -294,29 +304,29 @@ Covers:
 ## Future Improvements
 
 * automatic scheduled acknowledgment expiry
+* recruiter authentication
 * email / SMS notifications
-* authentication and recruiter accounts
-* multi-job dashboards
-* analytics for funnel conversion
-* OpenAPI / Swagger docs
-* containerized deployment
+* multi-job support
+* analytics dashboard
+* OpenAPI docs
+* Docker deployment
 
 ---
 
 ## Why This Submission Stands Out
 
-This is not a CRUD applicant tracker.
+This is not a CRUD tracker.
 
-It is a deterministic queue engine with:
+It is a deterministic hiring queue engine with:
 
-* capacity-aware admissions
-* automatic state transitions
+* bounded capacity control
+* self-moving pipeline transitions
 * inactivity recovery logic
-* audit-grade traceability
-* real backend correctness tests
+* audit-grade event history
+* tested backend flows
 
 ---
 
 ## Built For
 
-Small teams who need ATS-like control without ATS-like cost.
+Small teams needing ATS-like control without ATS-like cost.
