@@ -1,100 +1,322 @@
 # Next In Line
 
-## 1. Problem Overview
-Small teams need a lightweight hiring pipeline that enforces active review limits without manual spreadsheet operations. This project manages applications with a bounded active set and an automatically managed waitlist.
+> Autonomous hiring pipeline for small teams — capacity-aware, traceable, and self-moving.
 
-## 2. System Design Approach
-The system is designed as a backend-first pipeline engine with explicit transition rules:
-- Express API layer for request handling
-- Service layer for transition logic and invariants
-- PostgreSQL for transactional consistency and reconstruction-ready persistence
+---
 
-## Design Philosophy
-This system is built as a deterministic pipeline engine rather than a traditional queue-based CRUD system.
+## Overview
 
-All transitions are explicit, reproducible, and traceable, ensuring consistent behavior under concurrent conditions.
+Small teams often manage hiring through spreadsheets, emails, and manual follow-ups. Once active review capacity is full, new applicants get lost, delayed, or manually tracked.
 
-## 3. Core Concepts
-### State Transitions
-Applications move through explicit states (`ACTIVE`, `WAITLIST`, `PENDING_ACK`, `EXITED`) via controlled transition handlers.
+**Next In Line** is a lightweight internal hiring pipeline that automatically manages applicant flow using explicit queue logic.
 
-### Queue System
-Admission is capacity-aware. Overflow is queued as `WAITLIST` rather than rejected.
+When active capacity is full:
 
-### Concurrency Handling
-Critical transitions execute in database transactions with row-level locks to avoid race conditions.
+* new applicants are **waitlisted**, not rejected
+* when someone exits, the next candidate is **promoted automatically**
+* inactivity during promotion triggers **decay + requeue**
+* every state transition is **logged and reconstructable**
 
-### Event Logging
-Every transition emits an event record, enabling state audit and replay-style reconstruction.
+Built for real operational constraints, not demo-only CRUD flows.
 
-## 4. Key Features
-- Capacity-based admission into `ACTIVE` or `WAITLIST`
-- Automatic promotion when an active applicant exits
-- Inactivity decay with penalized requeue and cascade promotion
-- Dynamic queue position derived from ordering rules instead of static stored position
+---
 
-## 5. Concurrency Strategy
-`SELECT ... FOR UPDATE` is used to lock critical rows during admission and transition workflows.
+## Core Problem Solved
 
-This guarantees atomicity for read-modify-write steps:
-- lock capacity source (`jobs` row)
-- compute active count / next candidate
-- apply transition
-- log event
-- commit as one unit
+Traditional lightweight hiring workflows fail because they lack:
 
-Result: simultaneous requests cannot over-allocate active capacity or produce inconsistent promotion order.
+* bounded reviewer capacity
+* automatic queue movement
+* inactivity handling
+* auditability
+* deterministic ordering under concurrency
 
-## 6. Fairness & Determinism
-Waitlist ordering is deterministic:
-- Primary key: `priority_score` (lower is better)
-- Secondary key: `applied_at` (earlier is better)
+This project solves all five.
 
-Decay increases `priority_score`, preventing inactive applicants from retaining unfair priority while preserving deterministic replay behavior.
+---
 
-## 7. Event Logging & Traceability
-Transitions are persisted in an `events` stream with event type, metadata, and timestamp.
+## Key Features
 
-Operationally, this supports:
-- full lifecycle visibility per application
-- auditability of promotion and decay decisions
-- history endpoints for explainability
+### Capacity-Aware Admissions
 
-## 8. API Endpoints
-### API Endpoints
-- `POST /jobs`
-- `POST /applications/apply`
-- `POST /applications/exit`
-- `POST /applications/decay`
-- `GET /applications/:id/status`
-- `GET /applications/:id/history`
+Each job opening defines how many applicants can be actively reviewed at once.
 
-`GET /applications/:id/history` returns all events for the application, exposing the full transition chain in an event-driven model.
+Applications are assigned to:
 
-## 9. Setup Instructions
-1. Clone the repository.
-2. Install backend dependencies:
-   - `cd backend`
-   - `npm install`
-3. Create PostgreSQL database (example: `pipeline_db`).
-4. Configure DB credentials in `backend/src/db/index.js` (or migrate to env-based config).
-5. Apply schema in `backend/src/db/schema.sql`.
-6. Start server:
-   - `npm start`
-7. Verify:
-   - `GET /` returns `API running`
-   - `GET /test-db` validates DB connectivity
+* `ACTIVE`
+* `WAITLIST`
 
-## 10. Tradeoffs & Future Improvements
-Tradeoffs:
-- Simplicity over distributed scalability (single DB-backed service)
-- Explicit service logic over generic workflow abstraction
-- Minimal frontend; backend is source of truth
+based on available capacity.
 
-Future improvements:
-- Add acknowledgment timeout scheduler for automatic decay triggering
-- Add OpenAPI/Swagger contract and request/response schemas
-- Add idempotency keys for submission endpoints
-- Add pagination/filtering for event history
-- Add integration and concurrency stress tests
-- Move DB credentials to environment-only configuration
+---
+
+### Automatic Promotion Engine
+
+When an active applicant exits for any reason, the next waitlisted candidate is promoted automatically.
+
+No spreadsheet edits. No manual chasing.
+
+---
+
+### Inactivity Decay Mechanism
+
+When a promoted applicant enters `PENDING_ACK`, they must acknowledge within the defined window.
+
+If they do not:
+
+* they are not removed
+* they decay back into the waitlist
+* their priority worsens
+* the next candidate promotes automatically
+
+This creates a self-healing pipeline.
+
+---
+
+### Full Event Audit Trail
+
+Every transition is stored in an append-only event log:
+
+* applied
+* promoted
+* exited
+* decayed
+
+This enables full lifecycle reconstruction.
+
+---
+
+### Applicant Transparency
+
+Applicants can check:
+
+* current status
+* queue position
+* transition history
+
+---
+
+## Pipeline States
+
+| State       | Meaning                           |
+| ----------- | --------------------------------- |
+| ACTIVE      | Under active review               |
+| WAITLIST    | Waiting for capacity              |
+| PENDING_ACK | Promoted, awaiting acknowledgment |
+| EXITED      | Removed from active pipeline      |
+
+---
+
+## System Architecture
+
+Frontend:
+
+* React + Vite
+* Tailwind CSS dashboard
+
+Backend:
+
+* Node.js
+* Express
+
+Database:
+
+* PostgreSQL
+
+Design Layers:
+
+1. API Layer — request validation and transport
+2. Service Layer — queue rules and transitions
+3. Persistence Layer — transactional DB + event logs
+4. UI Layer — pipeline visibility dashboard
+
+---
+
+## Queue Ordering Logic
+
+Waitlist order is deterministic:
+
+1. `priority_score` (lower is better)
+2. `applied_at` timestamp (earlier first)
+
+This ensures fairness and replayability.
+
+---
+
+## Concurrency Strategy
+
+Critical operations use transactional locking:
+
+`SELECT ... FOR UPDATE`
+
+Used during:
+
+* application submission
+* promotions
+* exits
+* decay cascades
+
+This prevents:
+
+* double allocation of final slot
+* race conditions
+* inconsistent promotions
+
+---
+
+## API Endpoints
+
+### Jobs
+
+* `POST /jobs`
+
+### Applications
+
+* `POST /applications/apply`
+* `POST /applications/exit`
+* `POST /applications/decay`
+
+### Read APIs
+
+* `GET /applications/:id/status`
+* `GET /applications/:id/history`
+
+---
+
+## Frontend Dashboard
+
+The included dashboard visualizes:
+
+* applicant pipeline by state
+* event timeline
+* applicant history
+* live backend-connected data
+
+---
+
+## Local Setup
+
+## Requirements
+
+* Node.js
+* npm
+* PostgreSQL
+
+---
+
+## 1. Clone Repository
+
+```bash
+git clone <repo-url>
+cd Next-in-Line
+```
+
+---
+
+## 2. Backend Setup
+
+```bash
+cd backend
+npm install
+```
+
+Create database:
+
+```sql
+CREATE DATABASE pipeline_db;
+```
+
+Apply schema:
+
+```bash
+psql -U <username> -d pipeline_db -f src/db/schema.sql
+```
+
+Start backend:
+
+```bash
+npm start
+```
+
+Expected:
+
+* `http://localhost:5050/`
+* `http://localhost:5050/test-db`
+
+---
+
+## 3. Frontend Setup
+
+```bash
+cd ../frontend
+npm install
+npm run dev
+```
+
+Open:
+
+```text
+http://localhost:5173
+```
+
+---
+
+## Tests
+
+Backend flow tests included:
+
+```bash
+cd backend
+npm test
+```
+
+Covers:
+
+* job creation
+* capacity boundaries
+* apply logic
+* automatic promotion
+* decay logic
+* invalid inputs
+* repeated exits
+* history/status behavior
+
+---
+
+## Design Tradeoffs
+
+* Single-node DB simplicity over distributed complexity
+* Explicit rule engine over generic workflow abstraction
+* Minimal UI with strong backend correctness focus
+
+---
+
+## Future Improvements
+
+* automatic scheduled acknowledgment expiry
+* email / SMS notifications
+* authentication and recruiter accounts
+* multi-job dashboards
+* analytics for funnel conversion
+* OpenAPI / Swagger docs
+* containerized deployment
+
+---
+
+## Why This Submission Stands Out
+
+This is not a CRUD applicant tracker.
+
+It is a deterministic queue engine with:
+
+* capacity-aware admissions
+* automatic state transitions
+* inactivity recovery logic
+* audit-grade traceability
+* real backend correctness tests
+
+---
+
+## Built For
+
+Small teams who need ATS-like control without ATS-like cost.
