@@ -308,6 +308,37 @@ Current test coverage includes:
 
 ---
 
+## Quick Demo Actions (Optional)
+
+With backend running on `http://localhost:5050`, these commands let you simulate queue movement and watch the dashboard update.
+
+### Add Applicant
+
+```bash
+curl -X POST http://localhost:5050/applications/apply \
+-H "Content-Type: application/json" \
+-d '{"job_id":1,"applicant_name":"DemoUser"}'
+```
+
+### Exit Applicant
+
+```bash
+curl -X POST http://localhost:5050/applications/exit \
+-H "Content-Type: application/json" \
+-d '{"application_id":1}'
+```
+
+### Trigger Decay
+
+```bash
+curl -X POST http://localhost:5050/applications/decay \
+-H "Content-Type: application/json" \
+-d '{"application_id":2}'
+```
+
+After running any command, refresh the frontend dashboard to view updated pipeline state.
+---
+
 ## Engineering Highlights
 
 * Deterministic queue behavior
